@@ -1,6 +1,7 @@
 # VueMonitor
 
 > 一个简单的 Vue.js（支持 Vue 2 和 Vue 3）监控插件，提供错误捕获、性能监控（还没写）、用户行为追踪等功能。
+> 可以搭配 [vue-monitor-view](https://github.com/zjsix/vue-monitor-view) 使用,自己写后端，方便查看错误信息
 
 ## 功能特点
 
