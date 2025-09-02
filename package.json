@@ -1,0 +1,58 @@
+{
+  "name": "@zjsix/vue-monitor",
+  "version": "1.0.0",
+  "description": "A simple monitoring plugin for Vue.js applications, providing error tracking, performance monitoring and user behavior analysis",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "browser": "dist/umd/vue-monitor.js",
+  "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/cjs/index.js",
+      "import": "./dist/esm/index.js",
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/esm/index.js"
+    }
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "clean": "rimraf dist",
+    "dev": "rollup -c -w"
+  },
+  "keywords": [
+    "vue",
+    "vue3",
+    "vue2",
+    "monitoring",
+    "error-tracking",
+    "performance",
+    "behavior-analysis",
+    "frontend-monitor"
+  ],
+  "author": {
+    "name": "zhaojian",
+    "email": "zj_1997@163.com"
+  },
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zjsix/vue-monitor.git"
+  },
+  "peerDependencies": {
+    "vue": "^2.6.0 || ^3.0.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.6",
+    "@rollup/plugin-node-resolve": "^16.0.1",
+    "@types/node": "^20.11.28",
+    "@typescript-eslint/eslint-plugin": "^7.2.0",
+    "@typescript-eslint/parser": "^7.2.0",
+    "rimraf": "^5.0.5",
+    "rollup": "^4.50.0",
+    "rollup-plugin-typescript2": "^0.36.0",
+    "typescript": "^5.9.2"
+  }
+}

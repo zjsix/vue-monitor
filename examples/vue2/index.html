@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vue2-test-errors</title>
+    <script src="https://cdn.bootcdn.net/ajax/libs/vue/2.6.0/vue.min.js"></script>
+    <script src="../../dist/umd/vue-monitor.js"></script>
+</head>
+
+<body>
+    <div id="app">
+        <h2>VueMonitor 测试多种错误</h2>
+        <button @click="jsError" class="class1">触发原始 JS 错误</button>
+        <button @click="asyncError" class="class2">触发异步错误</button>
+        <button @click="vueMethodError" class="class3">触发 Vue 方法错误</button>
+        <button @click="templateError" id="id1">触发模板错误</button>
+        <button @click="customReportError" id="id2">自定义报错上报</button>
+    </div>
+
+    <script>
+        Vue.use(window.VueMonitor.default || window.VueMonitor, {
+            reportUrl: '/api/report',
+            projectName: 'vue2-test',
+            projectVersion: '1.0.0'
+        });
+
+        new Vue({
+            el: '#app',
+            created() {
+                console.log('VueMonitor:', this.$monitor);
+            },
+            methods: {
+                jsError() {
+                    throw new Error('原始 JS 错误 - 手动触发');
+                },
+                asyncError() {
+                    setTimeout(() => {
+                        throw new Error('异步 JS 错误 - setTimeout');
+                    }, 0);
+                },
+                vueMethodError() {
+                    const obj = null;
+                    console.log(obj.prop);
+                },
+                templateError() {
+                    this.$nextTick(() => {
+                        try {
+                            console.log(this.nonExistentProp.text);
+                        } catch (err) {
+                            // 手动上报
+                            if (this.$monitor && this.$monitor.reportError) {
+                                this.$monitor.reportError(err);
+                            }
+                        }
+                    });
+                },
+                customReportError() {
+                    // 自定义上报错误
+                    try {
+                        JSON.parse("不合法的 JSON");
+                    } catch (err) {
+                        if (this.$monitor && this.$monitor.reportError) {
+                            this.$monitor.reportError(err);
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
