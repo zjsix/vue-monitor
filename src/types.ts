@@ -19,7 +19,9 @@ export interface MonitorOptions {
   projectVersion?: string
   maxBreadcrumbs?: number,
   errorThrottleTime?: number,
-  filterInputAndScanData?: boolean
+  filterInputAndScanData?: boolean,
+  customHeaders?: Record<string, string>,
+  customData?: Record<string, any>
 }
 
 export interface CachedError {

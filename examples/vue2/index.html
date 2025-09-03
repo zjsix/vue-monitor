@@ -6,16 +6,47 @@
     <title>vue2-test-errors</title>
     <script src="https://cdn.bootcdn.net/ajax/libs/vue/2.6.0/vue.min.js"></script>
     <script src="../../dist/umd/vue-monitor.js"></script>
+    <style>
+        .slider-container {
+            width: 400px;
+            height: 60px;
+            margin: 32px auto 0 auto;
+            position: relative;
+            background: #f5f5f5;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .slider-box {
+            width: 40px;
+            height: 40px;
+            background: #409eff;
+            border-radius: 6px;
+            position: absolute;
+            top: 10px;
+            left: 0;
+            animation: slide-x 2s linear infinite alternate;
+        }
+        @keyframes slide-x {
+            0% { left: 0; }
+            100% { left: 360px; }
+        }
+    </style>
 </head>
 
 <body>
     <div id="app">
-        <h2>VueMonitor 测试多种错误</h2>
+        <h2>VueMonitor 测试多种错误 (Vue 2)</h2>
+        <div class="slider-container">
+            <div class="slider-box"></div>
+        </div>
         <button @click="jsError" class="class1">触发原始 JS 错误</button>
         <button @click="asyncError" class="class2">触发异步错误</button>
         <button @click="vueMethodError" class="class3">触发 Vue 方法错误</button>
         <button @click="templateError" id="id1">触发模板错误</button>
         <button @click="customReportError" id="id2">自定义报错上报</button>
+        <button @click="addBreadcrumb" id="id3">手动添加记录</button>
+        <button @click="longLoop" id="longLoopBtn">运行长循环检测性能</button>
+        <p v-if="loopDuration">长循环耗时：{{ loopDuration }} ms</p>
     </div>
 
     <script>
@@ -27,6 +58,11 @@
 
         new Vue({
             el: '#app',
+            data: function() {
+                return {
+                    loopDuration: null
+                }
+            },
             created() {
                 console.log('VueMonitor:', this.$monitor);
             },
@@ -48,7 +84,6 @@
                         try {
                             console.log(this.nonExistentProp.text);
                         } catch (err) {
-                            // 手动上报
                             if (this.$monitor && this.$monitor.reportError) {
                                 this.$monitor.reportError(err);
                             }
@@ -56,7 +91,6 @@
                     });
                 },
                 customReportError() {
-                    // 自定义上报错误
                     try {
                         JSON.parse("不合法的 JSON");
                     } catch (err) {
@@ -64,6 +98,30 @@
                             this.$monitor.reportError(err);
                         }
                     }
+                },
+                addBreadcrumb() {
+                    if (this.$monitor && this.$monitor.addBreadcrumb) {
+                        this.$monitor.addBreadcrumb({
+                            type: 'custom',
+                            target: 'a',
+                            value: '手动添加的记录',
+                            timestamp: Date.now()
+                        });
+                        console.log('已添加用户操作记录：', this.$monitor.breadcrumbs);
+                    }
+                },
+                longLoop() {
+                    const start = performance.now();
+                    let sum = 0;
+                    for (let i = 0; i < 1e8; i++) {
+                        sum += i;
+                        for (let j = 0; j < 10; j++) {
+                            sum += j;
+                        }
+                    }
+                    this.loopDuration = Math.round(performance.now() - start);
+                    // 防止 sum 被优化掉
+                    console.log('sum:', sum);
                 }
             }
         });

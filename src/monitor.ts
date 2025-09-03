@@ -1,15 +1,14 @@
 import type { Breadcrumb, ErrorInfo, MonitorOptions } from './types'
-import { formatDate } from './utils'
+import { formatDate, throttle } from './utils'
 
 export class VueMonitor {
     private breadcrumbs: Breadcrumb[] = []
     private errorCache = new Map<string, number>()
-    private errorQueue: Array<{ hash: string; time: number }> = []
 
     constructor(
         private options: MonitorOptions & { filterInputAndScanData?: boolean }
     ) {
-        this.options.maxBreadcrumbs ||= 20
+        this.options.maxBreadcrumbs ||= 30
         this.options.errorThrottleTime ||= 60 * 1000
         this.options.filterInputAndScanData ??= true
     }
@@ -21,15 +20,29 @@ export class VueMonitor {
     /** Vue 错误捕获 */
     initVue(VueOrApp: any, isVue3 = false) {
         const original = VueOrApp.config?.errorHandler
-        VueOrApp.config.errorHandler = (err: Error, vm: any, info: string) => {
-            this.reportError({
-                message: err.message,
-                stack: err.stack,
-                info,
-                url: location.href,
-                timestamp: formatDate()
-            })
-            original?.call(VueOrApp, err, vm, info) ?? console.error(err)
+
+        if (isVue3) {
+            VueOrApp.config.errorHandler = (err: unknown, instance: any, info: string) => {
+                this.reportError({
+                    message: err instanceof Error ? err.message : String(err),
+                    stack: err instanceof Error ? err.stack : undefined,
+                    info,
+                    url: location.href,
+                    timestamp: formatDate()
+                })
+                original?.call(VueOrApp, err, instance, info)
+            }
+        } else {
+            VueOrApp.config.errorHandler = (err: Error, vm: any, info: string) => {
+                this.reportError({
+                    message: err.message,
+                    stack: err.stack,
+                    info,
+                    url: location.href,
+                    timestamp: formatDate()
+                })
+                original?.call(VueOrApp, err, vm, info)
+            }
         }
     }
 
@@ -93,38 +106,54 @@ export class VueMonitor {
                 target:
                     target.tagName +
                     (target.id ? `#${target.id}` : '') +
-                    (target.className ? `.${target.className}` : ''),
+                    (target.className
+                        ? typeof target.className === 'string'
+                            ? `.${target.className.trim()}`
+                            : `.${Array.from(target.className).map(c => String(c).trim()).join('.')}`
+                        : ''),
                 value,
                 timestamp: formatDate()
             })
 
-        document.addEventListener('click', e =>
-            add('click', e.target as HTMLElement)
-        )
+        const getTargetValue = (target: HTMLElement) => {
+            if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+                return target.value
+            } else if (target.isContentEditable) {
+                return target.textContent || ''
+            }
+            return ''
+        }
 
+        // 点击事件
+        document.addEventListener('click', e => add('click', e.target as HTMLElement))
+
+        // 输入事件
         document.addEventListener('input', e => {
-            const t = e.target as HTMLInputElement;
-            if (!t || typeof t.value !== 'string') return;
-            const v = this.options.filterInputAndScanData
-                ? `length:${t.value.length}`
-                : t.value
-            add('input', t, v)
+            const t = e.target as HTMLElement
+            const v = getTargetValue(t)
+            const value = this.options.filterInputAndScanData ? `length:${v.length}` : v
+            add('input', t, value)
         })
 
-        // 扫码监听
-        let buf = '',
-            last = 0
+        // 中文输入法支持
+        let composing = false
+        document.addEventListener('compositionstart', () => { composing = true })
+        document.addEventListener('compositionend', (e: CompositionEvent) => {
+            composing = false
+            const target = e.target as HTMLElement
+            const v = getTargetValue(target)
+            const value = this.options.filterInputAndScanData ? `length:${v.length}` : v
+            add('scan', target, value)
+        })
+
+        // 扫码枪
         document.addEventListener('keydown', e => {
-            const now = Date.now()
-            if (now - last > 50) buf = ''
-            last = now
-            if (e.key === 'Enter' && buf) {
-                const v = this.options.filterInputAndScanData
-                    ? `length:${buf.length}`
-                    : buf
-                this.addBreadcrumb({ type: 'scan', target: 'document', value: v, timestamp: formatDate() })
-                buf = ''
-            } else if (e.key.length === 1) buf += e.key
+            if (!composing && e.key === 'Enter') {
+                const target = e.target as HTMLElement
+                const v = getTargetValue(target)
+                const value = this.options.filterInputAndScanData ? `length:${v.length}` : v
+                add('scan', target, value)
+            }
         })
     }
 
@@ -134,6 +163,7 @@ export class VueMonitor {
             this.breadcrumbs.shift()
     }
 
+    /** 上报错误 */
     reportError(err: ErrorInfo | Error) {
         const info: ErrorInfo =
             err instanceof Error
@@ -149,40 +179,129 @@ export class VueMonitor {
         const now = Date.now()
         const limit = this.options.errorThrottleTime!
 
-        // 清理过期缓存
-        while (this.errorQueue[0] && now - this.errorQueue[0].time > limit) {
-            this.errorCache.delete(this.errorQueue.shift()!.hash)
+        for (const [h, t] of this.errorCache.entries()) {
+            if (now - t > limit) this.errorCache.delete(h)
         }
 
-        if (this.errorCache.get(hash) && now - this.errorCache.get(hash)! < limit) {
+        if (this.errorCache.has(hash) && now - this.errorCache.get(hash)! < limit) {
             console.warn('重复错误被忽略', info.message)
             return
         }
 
         this.errorCache.set(hash, now)
-        this.errorQueue.push({ hash, time: now })
+
+        let payload = {
+            projectName: this.options.projectName,
+            projectVersion: this.options.projectVersion,
+            error: info,
+            breadcrumbs: this.breadcrumbs,
+            ...(this.options.customData || {})
+        }
 
         fetch(this.options.reportUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                projectName: this.options.projectName,
-                projectVersion: this.options.projectVersion,
-                error: info,
-                breadcrumbs: this.breadcrumbs
-            }),
+            headers: {
+                'Content-Type': 'application/json',
+                ...(this.options.customHeaders || {})
+            },
+            body: JSON.stringify(payload),
             keepalive: true
         }).catch(e => console.warn('上报错误失败:', e))
     }
-}
 
-export const VueMonitorPlugin = {
-    install(VueOrApp: any, opt: MonitorOptions) {
-        const monitor = new VueMonitor(opt)
-        const isVue3 = !!(VueOrApp.config && VueOrApp.config.globalProperties)
-        monitor.initVue(VueOrApp, isVue3)
-        monitor.initGlobalError()
-        monitor.initBehavior()
-            ; (window as any).VueMonitorInstance = monitor
+    /** 性能监控 */
+    initPerformanceMonitor() {
+        if (typeof PerformanceObserver !== 'function') return
+
+        const perfTypes = [
+            'paint',
+            'largest-contentful-paint',
+            'first-input',
+            'layout-shift'
+        ]
+
+        perfTypes.forEach(type => {
+            try {
+                const observer = new PerformanceObserver((list) => {
+                    for (const entry of list.getEntries()) {
+                        this.addBreadcrumb({
+                            type: 'performance',
+                            target: type,
+                            value: JSON.stringify({
+                                name: entry.name,
+                                startTime: entry.startTime,
+                                duration: entry.duration
+                            }),
+                            timestamp: formatDate()
+                        })
+                    }
+                })
+                observer.observe({ type, buffered: true })
+            } catch (e) {
+                console.warn('监听页面核心性能指标报错', e)
+            }
+        })
+
+        try {
+            const longTaskObserver = new PerformanceObserver((list) => {
+                for (const entry of list.getEntries()) {
+                    this.addBreadcrumb({
+                        type: 'performance',
+                        target: 'longtask',
+                        value: JSON.stringify({
+                            name: entry.name,
+                            startTime: entry.startTime,
+                            duration: entry.duration
+                        }),
+                        timestamp: formatDate()
+                    })
+                }
+            })
+            longTaskObserver.observe({ type: 'longtask', buffered: true })
+        } catch (e) {
+            console.warn('监听页面长任务报错', e)
+        }
+
+        /** 掉帧监控 */
+        function initFrameDropMonitor(addBreadcrumb: (b: Breadcrumb) => void) {
+            let lastFrameTime = performance.now()
+            let pendingFrameDrop: { frameTime: number; count: number } | null = null
+
+            const pushBreadcrumb = throttle(() => {
+                if (pendingFrameDrop) {
+                    addBreadcrumb({
+                        type: 'performance',
+                        target: 'frame-drop',
+                        value: JSON.stringify(pendingFrameDrop),
+                        timestamp: formatDate()
+                    })
+                    pendingFrameDrop = null
+                }
+            }, 100)
+
+            const tick = () => {
+                const now = performance.now()
+                const delta = now - lastFrameTime
+                lastFrameTime = now
+
+                if (!document.hidden && delta > 50) {
+                    if (pendingFrameDrop) {
+                        pendingFrameDrop.count += 1
+                        pendingFrameDrop.frameTime = delta
+                    } else {
+                        pendingFrameDrop = { frameTime: delta, count: 1 }
+                    }
+                    pushBreadcrumb()
+                }
+
+                if (document.hidden) lastFrameTime = performance.now()
+
+                requestAnimationFrame(tick)
+            }
+
+            requestAnimationFrame(tick)
+        }
+
+        initFrameDropMonitor((breadcrumb) => this.addBreadcrumb(breadcrumb))
     }
 }

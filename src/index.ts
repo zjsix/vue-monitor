@@ -20,6 +20,7 @@ const VueMonitorPlugin = {
     const monitor = new VueMonitor(options)
     monitor.initGlobalError()
     monitor.initBehavior()
+    monitor.initPerformanceMonitor()
 
     if (isVue3) {
       monitor.initVue(VueOrApp, true)
